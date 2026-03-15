@@ -1,8 +1,16 @@
+# ============================================================
+# LARAVEL DEFAULT
+# ============================================================
 *.log
 .DS_Store
+
+# .env berisi APP_KEY, password DB, API keys — JANGAN pernah di-commit.
+# Gunakan .env.example sebagai template untuk developer lain.
 .env
 .env.backup
 .env.production
+.env.staging
+
 .phpactor.json
 .phpunit.result.cache
 /.fleet
@@ -22,3 +30,38 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# ============================================================
+# DATABASE
+# ============================================================
+# File SQLite berisi data lokal — bukan bagian dari kode.
+# Setiap developer punya data lokal sendiri.
+# Developer lain tinggal jalankan: php artisan migrate --seed
+/database/database.sqlite
+
+# ============================================================
+# STORAGE — file yang di-generate runtime
+# ============================================================
+/storage/app/public/*
+/storage/framework/cache/data/*
+/storage/framework/sessions/*
+/storage/framework/testing/*
+/storage/framework/views/*
+/storage/logs/*
+
+# Tapi tetap track folder-nya supaya struktur folder ada di repo
+!/storage/app/public/.gitignore
+!/storage/framework/cache/data/.gitignore
+!/storage/framework/sessions/.gitignore
+!/storage/framework/testing/.gitignore
+!/storage/framework/views/.gitignore
+!/storage/logs/.gitignore
+
+# ============================================================
+# IDE & OS
+# ============================================================
+*.swp
+*.swo
+.phpstorm.meta.php
+_ide_helper.php
+_ide_helper_models.php

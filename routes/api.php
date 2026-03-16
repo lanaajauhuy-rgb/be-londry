@@ -17,6 +17,10 @@
 // Dengan use, cukup:
 //   AuthController::class
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\DeliveryController;
+use App\Http\Controllers\ExportController;
+use App\Http\Controllers\ReportController;
+use App\Http\Controllers\UserController;
 use App\Http\Controllers\SeoController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\OrderController;
@@ -70,7 +74,8 @@ Route::prefix('v1')
         // Siapa saja bisa akses endpoint ini untuk membuat order baru.
         // [PublicOrderController::class, 'store'] artinya:
         // panggil method 'store' yang ada di class PublicOrderController.
-        Route::post('/public/orders', [PublicOrderController::class, 'store']);
+        // throttle:public-order = maksimal 10 order/menit/IP
+        Route::post('/public/orders', [PublicOrderController::class, 'store'])->middleware('throttle:public-order');
 
         // ============================================================
         // SEO Endpoints — publik, tidak butuh login.
@@ -95,8 +100,10 @@ Route::prefix('v1')
         });
 
         // Route auth — tidak butuh login.
-        Route::post('/register', [AuthController::class, 'register']);
-        Route::post('/login', [AuthController::class, 'login']);
+        // throttle:register = pakai rate limit 'register' dari AppServiceProvider (3x/jam/IP)
+        Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:register');
+        // throttle:login = pakai rate limit 'login' dari AppServiceProvider (5x/menit/IP)
+        Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
 
         // Route yang butuh login (token Sanctum).
         // 'auth:sanctum' = middleware Sanctum yang cek token di header Authorization.
@@ -119,7 +126,8 @@ Route::prefix('v1')
         // 'auth:sanctum'   = cek token Sanctum valid
         // 'token.activity' = cek token tidak idle > IDLE_TIMEOUT menit
         // 'admin'          = cek role = 'admin'
-        Route::middleware(['auth:sanctum', 'token.activity', 'admin'])->group(function () {
+        // throttle:api = rate limit untuk semua endpoint admin (120 req/menit/user)
+        Route::middleware(['auth:sanctum', 'token.activity', 'admin', 'throttle:api'])->group(function () {
 
             // Route::apiResource() satu baris ini otomatis membuat 5 route sekaligus:
             // GET    /customers          → CustomerController@index   (list semua)
@@ -129,9 +137,17 @@ Route::prefix('v1')
             // DELETE /customers/{id}     → CustomerController@destroy (hapus)
             // Cara lain: bisa ditulis manual satu per satu, tapi apiResource jauh lebih ringkas.
             Route::apiResource('customers', CustomerController::class);
+            // Riwayat order milik satu customer: GET /customers/{customer}/orders
+            Route::get('customers/{customer}/orders', [CustomerController::class, 'orders']);
+
             Route::apiResource('services', ServiceController::class);
             Route::apiResource('orders', OrderController::class);
             Route::apiResource('order-items', OrderItemController::class);
+
+            // Delivery nested di bawah orders.
+            // GET/POST /orders/{order}/deliveries
+            // GET/PUT/DELETE /orders/{order}/deliveries/{delivery}
+            Route::apiResource('orders.deliveries', DeliveryController::class);
 
             // Nested resource — payments hidup di bawah orders.
             // URL pattern: /api/v1/orders/{order}/payments
@@ -163,5 +179,47 @@ Route::prefix('v1')
             // - Kalau salah, buat record baru yang benar — jangan hapus yang lama.
             Route::apiResource('orders.statuses', OrderStatusController::class)
                 ->only(['index', 'store', 'show']);
+
+            // ============================================================
+            // USER MANAGEMENT
+            // ============================================================
+            Route::apiResource('users', UserController::class);
+            // Toggle aktif/nonaktif user: PATCH /users/{user}/toggle-active
+            Route::patch('users/{user}/toggle-active', [UserController::class, 'toggleActive']);
+
+            // ============================================================
+            // EXPORT
+            // ============================================================
+            Route::prefix('export')->group(function () {
+                // GET /export/orders/csv?date_from=2026-03-01&date_to=2026-03-31
+                Route::get('/orders/csv',      [ExportController::class, 'ordersCSV']);
+                // GET /export/payments/csv?date_from=2026-03-01&date_to=2026-03-31
+                Route::get('/payments/csv',    [ExportController::class, 'paymentsCSV']);
+                // GET /export/revenue/print?date_from=2026-03-01&date_to=2026-03-31
+                // Buka di browser → Ctrl+P → Save as PDF
+                Route::get('/revenue/print',   [ExportController::class, 'revenueHTML']);
+            });
+
+            // ============================================================
+            // REPORTING ENDPOINTS
+            // ============================================================
+            // Semua endpoint di bawah ini READ-ONLY (hanya GET).
+            // Dikelompokkan di bawah prefix 'reports' supaya mudah dikenali.
+            //
+            // Daftar endpoint:
+            // GET /reports/summary           → ringkasan dashboard (semua metrik)
+            // GET /reports/orders/daily      → order & omzet hari ini
+            // GET /reports/revenue           → omzet per periode (daily/weekly/monthly)
+            // GET /reports/orders/pending    → order belum selesai
+            // GET /reports/orders/unpaid     → order belum lunas
+            // GET /reports/services/top      → layanan terlaris
+            Route::prefix('reports')->group(function () {
+                Route::get('/summary',        [ReportController::class, 'summary']);
+                Route::get('/orders/daily',   [ReportController::class, 'daily']);
+                Route::get('/revenue',        [ReportController::class, 'revenue']);
+                Route::get('/orders/pending', [ReportController::class, 'pendingOrders']);
+                Route::get('/orders/unpaid',  [ReportController::class, 'unpaidOrders']);
+                Route::get('/services/top',   [ReportController::class, 'topServices']);
+            });
         });
     });

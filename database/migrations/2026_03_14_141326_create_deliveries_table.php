@@ -29,7 +29,8 @@ return new class extends Migration
             // Kurir opsional, bisa null kalau belum di-assign.
             $table->foreignId('courier_user_id')->nullable()->constrained('users')->nullOnDelete();
 
-            $table->string('status')->default('pending');
+            // ENUM supaya hanya nilai valid yang bisa masuk ke DB
+            $table->enum('status', ['pending', 'on_the_way', 'done', 'cancelled'])->default('pending');
             $table->text('notes')->nullable();
 
             $table->timestamps();

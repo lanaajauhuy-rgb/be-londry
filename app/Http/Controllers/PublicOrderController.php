@@ -42,9 +42,8 @@ class PublicOrderController extends Controller
             'customer.name' => ['required', 'string', 'max:255'],
             'customer.phone' => ['required', 'string', 'max:20'],
             'customer.email' => ['nullable', 'email', 'max:255'],
-            // address customer wajib diisi karena kolom customers.address NOT NULL di DB.
-            // Kalau nullable, DB akan error saat customer baru dibuat tanpa address.
-            'customer.address' => ['required', 'string'],
+            // address nullable sesuai task.md — customer walk-in mungkin tidak punya alamat.
+            'customer.address' => ['nullable', 'string'],
             'customer.notes' => ['nullable', 'string'],
 
             'pickup.address' => ['required', 'string'],

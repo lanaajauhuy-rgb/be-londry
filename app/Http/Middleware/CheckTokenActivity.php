@@ -32,7 +32,7 @@ class CheckTokenActivity
     // IDLE_TIMEOUT = berapa menit boleh tidak aktif sebelum token expired.
     // Ubah nilai ini sesuai kebutuhan.
     // Contoh: 5 = 5 menit, 30 = 30 menit, 480 = 8 jam
-    private const IDLE_TIMEOUT = 30; // menit
+    private const IDLE_TIMEOUT_MINUTES = 30; // menit — ubah sesuai kebutuhan
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -65,7 +65,7 @@ class CheckTokenActivity
             $idleMinutes = $token->last_used_at->diffInMinutes(now());
 
             // Kalau sudah idle lebih dari batas yang ditentukan:
-            if ($idleMinutes >= self::IDLE_TIMEOUT) {
+            if ($idleMinutes >= self::IDLE_TIMEOUT_MINUTES) {
                 // Hapus token dari database supaya tidak bisa dipakai lagi.
                 // Ini berbeda dari sekedar return 401 tanpa hapus —
                 // kalau tidak dihapus, token masih ada di DB dan bisa dicoba lagi.
@@ -75,11 +75,11 @@ class CheckTokenActivity
                 // Client harus redirect user ke halaman login.
                 return response()->json([
                     'message'      => 'Sesi kamu sudah berakhir karena tidak aktif selama '
-                                      . self::IDLE_TIMEOUT . ' menit. Silakan login kembali.',
+                                      . self::IDLE_TIMEOUT_MINUTES . ' menit. Silakan login kembali.',
                     'reason'       => 'token_expired_idle',
                     // Kasih tahu client berapa menit idle timeout-nya
                     // supaya bisa tampilkan pesan yang tepat di UI.
-                    'idle_timeout' => self::IDLE_TIMEOUT,
+                    'idle_timeout' => self::IDLE_TIMEOUT_MINUTES,
                 ], 401);
             }
         }

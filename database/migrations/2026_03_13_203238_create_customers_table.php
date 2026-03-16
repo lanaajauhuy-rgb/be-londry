@@ -17,7 +17,8 @@ return new class extends Migration
             $table->string('name', 50);
             $table->string('phone', 13)->index();
             $table->string('email', 50)->nullable();
-            $table->string('address', 500);
+            // nullable sesuai task.md — address tidak wajib untuk customer walk-in
+            $table->string('address', 500)->nullable();
             $table->string('notes', 255)->nullable();
             $table->timestamps();
         });

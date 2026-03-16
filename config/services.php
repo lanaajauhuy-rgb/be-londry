@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+
+    // Fonnte = WhatsApp Gateway Indonesia
+    // Daftar di https://fonnte.com, isi FONNTE_TOKEN di .env
+    'fonnte' => [
+        'token' => env('FONNTE_TOKEN'),
+    ],
+
 ];

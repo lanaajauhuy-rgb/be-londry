@@ -61,4 +61,11 @@ class Customer extends Model
         'address',
         'notes',
     ];
+
+    // Satu customer bisa punya banyak order.
+    // Dipakai di CustomerController untuk riwayat order dan statistik.
+    public function orders(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(Order::class);
+    }
 }

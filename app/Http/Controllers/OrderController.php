@@ -13,15 +13,41 @@ use Illuminate\Validation\Rule;
 class OrderController extends Controller
 {
     // index() — GET /api/v1/orders
-    // Kembalikan semua order, diurutkan dari yang paling baru.
-    public function index(): JsonResponse
+    // Mendukung filter, search, dan pagination.
+    //
+    // Query params:
+    //   ?search=ORD001         → cari by order_number
+    //   ?status=washing        → filter by status
+    //   ?payment_status=unpaid → filter by payment_status
+    //   ?customer_id=3         → filter by customer
+    //   ?per_page=20           → jumlah per halaman
+    public function index(Request $request): JsonResponse
     {
-        return response()->json([
-            // latest() = ORDER BY created_at DESC
-            // Alternatif jika ingin urut by order_date:
-            // Order::orderBy('order_date', 'desc')->get()
-            'data' => Order::latest()->get(),
+        $validated = $request->validate([
+            'search'         => ['sometimes', 'string', 'max:100'],
+            'status'         => ['sometimes', 'string'],
+            'payment_status' => ['sometimes', 'in:unpaid,partial,paid,refunded'],
+            'customer_id'    => ['sometimes', 'integer', 'exists:customers,id'],
+            'per_page'       => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);
+
+        $query = Order::with('customer:id,name,phone,customer_code')
+                      ->latest('order_date');
+
+        if (! empty($validated['search'])) {
+            $query->where('order_number', 'LIKE', "%{$validated['search']}%");
+        }
+        if (! empty($validated['status'])) {
+            $query->where('status', $validated['status']);
+        }
+        if (! empty($validated['payment_status'])) {
+            $query->where('payment_status', $validated['payment_status']);
+        }
+        if (! empty($validated['customer_id'])) {
+            $query->where('customer_id', $validated['customer_id']);
+        }
+
+        return response()->json($query->paginate($validated['per_page'] ?? 15));
     }
 
     // store() — POST /api/v1/orders
@@ -119,10 +145,21 @@ class OrderController extends Controller
     }
 
     // show() — GET /api/v1/orders/{id}
-    // Route Model Binding: Laravel otomatis cari Order by id dari URL.
-    // Kalau tidak ketemu → otomatis 404. Tidak perlu tulis manual.
+    // Mengembalikan detail ORDER LENGKAP: items, payments, status history, delivery.
+    // Ini yang dipakai saat buka halaman detail order di frontend.
     public function show(Order $order): JsonResponse
     {
+        // Eager load semua relasi yang dibutuhkan dalam SATU query roundtrip.
+        // Tanpa with(), setiap akses relasi = query DB terpisah (N+1 problem).
+        $order->load([
+            'customer:id,name,phone,customer_code,email,address',
+            'receivedBy:id,name,role',
+            'items.service:id,name,code,pricing_model',
+            'payments' => fn ($q) => $q->latest(),
+            'statusHistories' => fn ($q) => $q->with('changedBy:id,name')->orderBy('changed_at'),
+            'deliveries',
+        ]);
+
         return response()->json([
             'data' => $order,
         ]);

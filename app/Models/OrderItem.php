@@ -59,4 +59,22 @@ class OrderItem extends Model
                       //                     atau qty * unit_price (per_item)
         'notes',      // catatan per item (bisa null)
     ];
+
+    // ============================================================
+    // RELATIONSHIPS
+    // ============================================================
+
+    // OrderItem milik satu Order.
+    public function order(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(Order::class);
+    }
+
+    // OrderItem referensi ke satu Service.
+    // Dibutuhkan supaya bisa eager load: OrderItem::with('service')
+    // yang dipakai di ReportController::getTopServices().
+    public function service(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(Service::class);
+    }
 }

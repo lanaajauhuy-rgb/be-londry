@@ -5,30 +5,46 @@ namespace App\Http\Controllers;
 use App\Models\Customer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule; // dipakai untuk validasi yang butuh logika lebih kompleks
+use Illuminate\Validation\Rule;
 
-// CustomerController menangani semua operasi CRUD untuk data customer.
-// CRUD = Create, Read, Update, Delete — 4 operasi dasar pengelolaan data.
-// Diakses lewat Route::apiResource('customers', ...) yang mendaftarkan 5 route otomatis.
 class CustomerController extends Controller
 {
-    // index() — dipanggil saat GET /api/v1/customers
-    // Tugasnya: ambil semua data customer, kembalikan sebagai JSON.
-    public function index(): JsonResponse
+    // index() — GET /api/v1/customers
+    // Mendukung: pencarian by nama/phone, pagination.
+    //
+    // Query params yang didukung:
+    //   ?search=budi       → cari customer yang nama atau phone-nya mengandung "budi"
+    //   ?per_page=20       → jumlah data per halaman (default 15)
+    //   ?page=2            → halaman ke berapa (otomatis dari paginate())
+    public function index(Request $request): JsonResponse
     {
-        return response()->json([
-            // Customer::latest() = ambil semua data customer, diurutkan dari yang terbaru.
-            // latest() secara default mengurutkan berdasarkan kolom 'created_at' DESC.
-            // ->get() = eksekusi query dan ambil hasilnya sebagai Collection (semacam array).
-            //
-            // Cara alternatif yang sama:
-            // Customer::orderBy('created_at', 'desc')->get()
-            'data' => Customer::latest()->get(),
+        $validated = $request->validate([
+            'search'   => ['sometimes', 'string', 'max:100'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);
+
+        $query = Customer::query()->latest();
+
+        // Kalau ada parameter search, filter berdasarkan nama ATAU phone.
+        // 'LIKE %keyword%' = cari yang mengandung keyword di posisi manapun.
+        if (! empty($validated['search'])) {
+            $search = $validated['search'];
+            // where + orWhere dibungkus closure supaya kondisi OR-nya terisolasi.
+            // Tanpa closure: WHERE ... AND name LIKE ? OR phone LIKE ?  (salah)
+            // Dengan closure: WHERE ... AND (name LIKE ? OR phone LIKE ?)  (benar)
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'LIKE', "%{$search}%")
+                  ->orWhere('phone', 'LIKE', "%{$search}%")
+                  ->orWhere('customer_code', 'LIKE', "%{$search}%");
+            });
+        }
+
+        $customers = $query->paginate($validated['per_page'] ?? 15);
+
+        return response()->json($customers);
     }
 
-    // store() — dipanggil saat POST /api/v1/customers
-    // Tugasnya: validasi data, simpan customer baru ke database.
+    // store() — POST /api/v1/customers
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -36,14 +52,10 @@ class CustomerController extends Controller
             'name'          => ['required', 'string', 'max:50'],
             'phone'         => ['required', 'string', 'max:13'],
             'email'         => ['nullable', 'email', 'max:50'],
-            'address'       => ['required', 'string', 'max:500'],
+            'address'       => ['nullable', 'string', 'max:500'],
             'notes'         => ['nullable', 'string', 'max:255'],
         ]);
 
-        // Karena semua field di $validated sama persis dengan $fillable di Model Customer,
-        // kita bisa langsung pass $validated tanpa tulis field satu per satu.
-        // Cara alternatif (lebih verbose tapi lebih eksplisit):
-        // Customer::create(['name' => $validated['name'], 'phone' => $validated['phone'], ...])
         $customer = Customer::create($validated);
 
         return response()->json([
@@ -52,70 +64,104 @@ class CustomerController extends Controller
         ], 201);
     }
 
-    // show() — dipanggil saat GET /api/v1/customers/{id}
-    // Tugasnya: kembalikan detail satu customer berdasarkan ID.
-    //
-    // Parameter $customer sudah berupa object Customer, BUKAN integer ID.
-    // Ini namanya "Route Model Binding" — Laravel otomatis cari Customer berdasarkan
-    // ID di URL dan inject object-nya ke parameter.
-    // Kalau Customer dengan ID itu tidak ada, Laravel otomatis balas 404.
-    // Kamu tidak perlu tulis Customer::findOrFail($id) secara manual.
+    // show() — GET /api/v1/customers/{id}
+    // Menampilkan detail customer beserta statistik singkat.
     public function show(Customer $customer): JsonResponse
     {
+        // load() = lazy eager loading — ambil relasi setelah model sudah ada.
+        // Berbeda dari with() yang dilakukan saat query awal.
+        // Di sini kita load orders terbaru untuk ditampilkan di profil customer.
+        $customer->load([
+            'orders' => function ($q) {
+                // Hanya ambil 5 order terbaru dan field yang relevan saja.
+                $q->latest()->limit(5)->select([
+                    'id', 'order_number', 'order_date',
+                    'status', 'payment_status', 'total_amount', 'customer_id',
+                ]);
+            },
+        ]);
+
         return response()->json([
             'data' => $customer,
+            'meta' => [
+                // Statistik customer — berguna untuk tampilan profil.
+                'total_orders'   => $customer->orders()->count(),
+                'total_spent'    => (float) $customer->orders()->sum('total_amount'),
+                'pending_orders' => $customer->orders()
+                    ->whereNotIn('status', ['completed', 'cancelled'])
+                    ->count(),
+            ],
         ]);
     }
 
-    // update() — dipanggil saat PUT /api/v1/customers/{id}
-    // Tugasnya: validasi data baru, perbarui data customer yang sudah ada.
+    // update() — PUT /api/v1/customers/{id}
     public function update(Request $request, Customer $customer): JsonResponse
     {
         $validated = $request->validate([
             'customer_code' => [
-                'required',
-                'string',
-                'max:10',
-                // Rule::unique()->ignore() dibutuhkan karena:
-                // Saat update, kita tidak mau validasi unique menolak nilai yang
-                // sudah dimiliki customer ini sendiri.
-                // Contoh: customer id=5 punya customer_code='CUS005'.
-                // Kalau update tanpa ->ignore(), validasi unique akan error karena
-                // 'CUS005' sudah ada di database (milik customer itu sendiri).
-                // ->ignore($customer->id) = "abaikan baris dengan id ini saat cek unique".
+                'required', 'string', 'max:10',
                 Rule::unique('customers', 'customer_code')->ignore($customer->id),
             ],
             'name'    => ['required', 'string', 'max:50'],
             'phone'   => ['required', 'string', 'max:13'],
             'email'   => ['nullable', 'email', 'max:50'],
-            'address' => ['required', 'string', 'max:500'],
+            'address' => ['nullable', 'string', 'max:500'],
             'notes'   => ['nullable', 'string', 'max:255'],
         ]);
 
-        // $customer->update() — update data customer yang sudah diambil lewat Route Model Binding.
-        // Berbeda dengan Customer::update() yang butuh kondisi where.
-        // Di sini $customer sudah spesifik ke satu baris, jadi langsung update.
         $customer->update($validated);
 
         return response()->json([
             'message' => 'Customer berhasil diupdate',
-            'data'    => $customer,
+            'data'    => $customer->fresh(),
         ]);
     }
 
-    // destroy() — dipanggil saat DELETE /api/v1/customers/{id}
-    // Tugasnya: hapus customer dari database.
+    // destroy() — DELETE /api/v1/customers/{id}
     public function destroy(Customer $customer): JsonResponse
     {
-        // $customer->delete() hapus baris ini dari database.
-        // Karena tabel customers tidak pakai softDelete, data benar-benar dihapus permanen.
-        // Kalau mau "hapus lunak" (data tetap ada tapi ditandai deleted), perlu tambah
-        // SoftDeletes trait di Model dan kolom deleted_at di migration.
+        // Cek dulu apakah customer masih punya order yang aktif.
+        // Tidak aman menghapus customer yang masih ada order berjalan.
+        $activeOrders = $customer->orders()
+            ->whereNotIn('status', ['completed', 'cancelled'])
+            ->count();
+
+        if ($activeOrders > 0) {
+            return response()->json([
+                'message' => 'Customer tidak bisa dihapus karena masih memiliki '
+                             . $activeOrders . ' order aktif.',
+            ], 422);
+        }
+
         $customer->delete();
 
         return response()->json([
             'message' => 'Customer berhasil dihapus',
         ]);
-        // Tidak return data customer — karena sudah dihapus, tidak ada yang perlu dikembalikan.
+    }
+
+    // orders() — GET /api/v1/customers/{id}/orders
+    // Riwayat semua order milik customer ini, dengan pagination.
+    public function orders(Request $request, Customer $customer): JsonResponse
+    {
+        $validated = $request->validate([
+            'status'         => ['sometimes', 'string'],
+            'payment_status' => ['sometimes', 'in:unpaid,partial,paid,refunded'],
+            'per_page'       => ['sometimes', 'integer', 'min:1', 'max:100'],
+        ]);
+
+        $query = $customer->orders()->latest('order_date');
+
+        if (! empty($validated['status'])) {
+            $query->where('status', $validated['status']);
+        }
+
+        if (! empty($validated['payment_status'])) {
+            $query->where('payment_status', $validated['payment_status']);
+        }
+
+        $orders = $query->paginate($validated['per_page'] ?? 15);
+
+        return response()->json($orders);
     }
 }

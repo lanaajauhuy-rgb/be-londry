@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\OrderStatusChanged;
 use App\Models\Order;
 use App\Models\OrderStatusHistory;
 use Illuminate\Http\JsonResponse;
@@ -42,25 +43,26 @@ class OrderStatusController extends Controller
     // karena history tidak akan tercatat.
     public function store(Request $request, Order $order): JsonResponse
     {
-        $validated = $request->validate([
-            // Rule::in() = status baru harus salah satu dari list ini.
-            // Daftar ini harus sama persis dengan yang ada di OrderController
-            // supaya konsisten di seluruh aplikasi.
-            'status'     => ['required', Rule::in([
-                'pending', 'received', 'washing', 'drying',
-                'ironing', 'ready', 'delivered', 'completed', 'cancelled',
-            ])],
-            // changed_at boleh tidak dikirim, default ke sekarang.
-            // 'sometimes' = opsional, boleh tidak ada di request.
-            // Ini berguna kalau admin lupa input dan baru memasukkan data setelahnya.
-            'changed_at' => ['sometimes', 'date'],
-            'notes'      => ['nullable', 'string'],
-        ]);
+        // Cek dulu apakah order sudah selesai SEBELUM validasi.
+        // Kalau sudah completed, tidak perlu validasi data sama sekali — langsung tolak.
+        // Ini "early return" supaya tidak buang waktu validasi untuk request yang pasti ditolak.
         if ($order->status === 'completed') {
             return response()->json([
                 'message' => 'Order ini sudah selesai. Tidak bisa mengubah status lagi.',
             ], 422);
         }
+
+        // Validasi data request — diletakkan setelah early return di atas.
+        $validated = $request->validate([
+            // Rule::in() = status baru harus salah satu dari list ini.
+            'status'     => ['required', Rule::in([
+                'pending', 'received', 'washing', 'drying',
+                'ironing', 'ready', 'delivered', 'completed', 'cancelled',
+            ])],
+            // 'sometimes' = opsional. Berguna kalau admin lupa input dan baru masukkan belakangan.
+            'changed_at' => ['sometimes', 'date'],
+            'notes'      => ['nullable', 'string'],
+        ]);
 
         // Cek apakah status yang dikirim sama dengan status sekarang.
         // Tidak ada gunanya update ke status yang sama = tidak ada perubahan.
@@ -115,13 +117,19 @@ class OrderStatusController extends Controller
             ]);
         });
 
+        // Lempar event — Listener akan kirim notifikasi ke customer secara async.
+        // event() = helper Laravel untuk dispatch event ke semua Listener yang terdaftar.
+        // Karena Listener implements ShouldQueue, ini tidak blocking — API langsung return.
+        event(new OrderStatusChanged(
+            order:     $order->fresh(),
+            oldStatus: $order->getOriginal('status') ?? $order->status,
+            newStatus: $validated['status'],
+        ));
+
         return response()->json([
             'message' => 'Status order berhasil diubah',
             'data'    => [
-                // ->fresh() = query ulang ke DB untuk dapat data terbaru.
-                // Pakai eager loading 'statusHistories' supaya response
-                // langsung include semua history, tidak perlu request lagi.
-                'order'    => $order->fresh(['statusHistories']),
+                'order' => $order->fresh(['statusHistories']),
             ],
         ]);
     }

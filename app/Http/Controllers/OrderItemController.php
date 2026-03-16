@@ -16,10 +16,22 @@ class OrderItemController extends Controller
     // Catatan: endpoint ini mengembalikan SEMUA item dari semua order.
     // Di aplikasi nyata, biasanya di-filter by order_id:
     // OrderItem::where('order_id', $orderId)->latest()->get()
-    public function index(): JsonResponse
+    // index() — GET /api/v1/order-items?order_id=5
+    // Selalu filter by order_id — tidak ada gunanya ambil semua item tanpa konteks order.
+    public function index(Request $request): JsonResponse
     {
+        $validated = $request->validate([
+            'order_id' => ['sometimes', 'integer', 'exists:orders,id'],
+        ]);
+
+        $query = OrderItem::with('service:id,name,code,pricing_model')->latest();
+
+        if (! empty($validated['order_id'])) {
+            $query->where('order_id', $validated['order_id']);
+        }
+
         return response()->json([
-            'data' => OrderItem::latest()->get(),
+            'data' => $query->get(),
         ]);
     }
 

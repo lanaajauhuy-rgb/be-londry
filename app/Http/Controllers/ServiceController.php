@@ -11,11 +11,31 @@ use Illuminate\Validation\Rule;
 // Contoh data service: "Cuci Kiloan", "Cuci Sepatu", "Dry Clean".
 class ServiceController extends Controller
 {
-    public function index(): JsonResponse
+    // index() — GET /api/v1/services
+    // Query params: ?search=cuci&is_active=1&per_page=20
+    public function index(Request $request): JsonResponse
     {
-        return response()->json([
-            'data' => Service::latest()->get(),
+        $validated = $request->validate([
+            'search'    => ['sometimes', 'string', 'max:100'],
+            'is_active' => ['sometimes', 'boolean'],
+            'per_page'  => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);
+
+        $query = Service::query()->latest();
+
+        if (! empty($validated['search'])) {
+            $search = $validated['search'];
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'LIKE', "%{$search}%")
+                  ->orWhere('code', 'LIKE', "%{$search}%");
+            });
+        }
+
+        if (isset($validated['is_active'])) {
+            $query->where('is_active', $validated['is_active']);
+        }
+
+        return response()->json($query->paginate($validated['per_page'] ?? 50));
     }
 
     public function store(Request $request): JsonResponse

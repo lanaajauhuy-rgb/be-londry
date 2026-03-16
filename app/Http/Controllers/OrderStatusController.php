@@ -56,6 +56,11 @@ class OrderStatusController extends Controller
             'changed_at' => ['sometimes', 'date'],
             'notes'      => ['nullable', 'string'],
         ]);
+        if ($order->status === 'completed') {
+            return response()->json([
+                'message' => 'Order ini sudah selesai. Tidak bisa mengubah status lagi.',
+            ], 422);
+        }
 
         // Cek apakah status yang dikirim sama dengan status sekarang.
         // Tidak ada gunanya update ke status yang sama = tidak ada perubahan.

@@ -25,10 +25,7 @@ use App\Http\Controllers\ServiceController;
 use App\Http\Controllers\OrderStatusController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PublicOrderController;
-use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
-use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Routing\Middleware\SubstituteBindings;
-use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
 
 // Route::prefix('v1') artinya semua route di dalam group ini
@@ -37,27 +34,16 @@ use Illuminate\Support\Facades\Route;
 // Kenapa pakai versi? Supaya kalau API berubah di masa depan,
 // kamu bisa buat '/v2/' tanpa merusak client yang masih pakai v1.
 Route::prefix('v1')
-    // ->middleware([...]) artinya: sebelum request masuk ke Controller,
-    // Laravel jalankan dulu semua middleware yang ada di array ini secara urut.
-    // Middleware = "satpam" yang memeriksa atau memodifikasi request.
+    // Dengan Sanctum, kita tidak butuh session middleware lagi.
+    // Sanctum membaca token dari header Authorization: Bearer TOKEN
+    // secara otomatis tanpa perlu session atau cookie.
+    //
+    // SubstituteBindings tetap dibutuhkan untuk Route Model Binding.
     ->middleware([
-        // EncryptCookies: enkripsi semua cookie yang dikirim ke client.
-        // Ini keamanan bawaan Laravel supaya cookie tidak bisa dimanipulasi.
-        EncryptCookies::class,
-
-        // AddQueuedCookiesToResponse: tambahkan cookie yang sudah di-queue
-        // ke dalam response sebelum dikirim balik ke client.
-        AddQueuedCookiesToResponse::class,
-
-        // StartSession: aktifkan session untuk request ini.
-        // Session = cara server "ingat" siapa kamu di antara request.
-        // Dibutuhkan supaya Auth::user() bisa tahu siapa yang sedang login.
-        StartSession::class,
-
         // SubstituteBindings: aktifkan Route Model Binding.
-        // Ini yang bikin parameter seperti {customer} di URL otomatis
-        // diubah jadi object Customer dari database.
-        // Contoh: GET /customers/5 → $customer sudah berisi data Customer id=5.
+        // Ini yang bikin parameter seperti {order} di URL otomatis
+        // diubah jadi object Order dari database.
+        // Contoh: GET /orders/5 → $order sudah berisi data Order id=5.
         SubstituteBindings::class,
     ])
     // ->group(function() {...}) artinya: semua route di dalam closure ini
@@ -108,19 +94,32 @@ Route::prefix('v1')
                 ->where('page', '[a-zA-Z0-9._-]+');
         });
 
-        // Route auth — tidak butuh login (karena ini proses login/registernya).
+        // Route auth — tidak butuh login.
         Route::post('/register', [AuthController::class, 'register']);
         Route::post('/login', [AuthController::class, 'login']);
 
-        // ->middleware('auth') artinya endpoint logout hanya bisa diakses
-        // kalau sudah login. Kalau belum login dan coba akses, dapat 401.
-        Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth');
+        // Route yang butuh login (token Sanctum).
+        // 'auth:sanctum' = middleware Sanctum yang cek token di header Authorization.
+        // Berbeda dari 'auth' biasa yang cek session.
+        // Cara kirim token: tambahkan header di setiap request:
+        //   Authorization: Bearer 1|abcdefghij...
+        //   Accept: application/json
+        // Urutan middleware penting:
+        // 1. auth:sanctum  → pastikan token valid
+        // 2. token.activity → baru cek apakah token masih aktif (sliding expiry)
+        // Kalau urutannya dibalik, token.activity tidak bisa akses $request->user()
+        // karena Sanctum belum memproses token-nya.
+        Route::middleware(['auth:sanctum', 'token.activity'])->group(function () {
+            // Logout dan cek user yang sedang login.
+            Route::post('/logout', [AuthController::class, 'logout']);
+            Route::get('/me', [AuthController::class, 'me']);
+        });
 
         // Route internal — hanya bisa diakses kalau sudah login DAN role-nya admin.
-        // 'auth'  = cek apakah sudah login (dari SessionGuard Laravel)
-        // 'admin' = cek apakah role user = 'admin' (dari AdminMiddleware kita)
-        // Kedua middleware dijalankan urut: auth dulu, baru admin.
-        Route::middleware(['auth', 'admin'])->group(function () {
+        // 'auth:sanctum'   = cek token Sanctum valid
+        // 'token.activity' = cek token tidak idle > IDLE_TIMEOUT menit
+        // 'admin'          = cek role = 'admin'
+        Route::middleware(['auth:sanctum', 'token.activity', 'admin'])->group(function () {
 
             // Route::apiResource() satu baris ini otomatis membuat 5 route sekaligus:
             // GET    /customers          → CustomerController@index   (list semua)

@@ -7,6 +7,7 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 
 /**
  * @property int $id
@@ -58,8 +59,14 @@ class User extends Authenticatable
     //
     // @use HasFactory<UserFactory> = PHPDoc hint untuk IDE supaya tahu
     // factory ini menggunakan UserFactory, bukan factory lain.
+    // HasApiTokens = ditambahkan oleh Sanctum.
+    // Ini yang bikin User bisa punya token API.
+    // Dengan trait ini, bisa panggil:
+    //   $user->createToken('nama-token')  → buat token baru
+    //   $user->tokens()                  → list semua token user ini
+    //   $user->currentAccessToken()      → token yang dipakai di request ini
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
 
     // $fillable = kolom yang boleh diisi lewat create() atau update().
     // Sama seperti Model lain, ini proteksi Mass Assignment.

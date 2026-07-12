@@ -23,7 +23,7 @@ class CustomerController extends Controller
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $query = Customer::query()->latest();
+        $query = Customer::query()->withCount('orders')->latest();
 
         // Kalau ada parameter search, filter berdasarkan nama ATAU phone.
         // 'LIKE %keyword%' = cari yang mengandung keyword di posisi manapun.

@@ -39,22 +39,21 @@ class PublicOrderController extends Controller
         // client selalu kirim header 'Accept: application/json'.
         // Laravel akan return JSON kalau header itu ada.
         $validator = Validator::make($request->all(), [
-            'customer.name' => ['required', 'string', 'max:255'],
-            'customer.phone' => ['required', 'string', 'max:20'],
-            'customer.email' => ['nullable', 'email', 'max:255'],
-            // address nullable sesuai task.md — customer walk-in mungkin tidak punya alamat.
-            'customer.address' => ['nullable', 'string'],
-            'customer.notes' => ['nullable', 'string'],
+            'customer.name' => ['required', 'string', 'max:50'],
+            'customer.phone' => ['required', 'string', 'regex:/^0/', 'max:13'],
+            'customer.email' => ['nullable', 'email', 'max:50'],
+            'customer.address' => ['nullable', 'string', 'max:500'],
+            'customer.notes' => ['nullable', 'string', 'max:255'],
 
-            'pickup.address' => ['required', 'string'],
+            'pickup.address' => ['required', 'string', 'max:500'],
             'pickup.scheduled_at' => ['nullable', 'date'],
-            'pickup.notes' => ['nullable', 'string'],
+            'pickup.notes' => ['nullable', 'string', 'max:255'],
 
             'items' => ['required', 'array', 'min:1'],
             'items.*.service_id' => ['required', 'exists:services,id'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.weight_kg' => ['nullable', 'numeric', 'min:0'],
-            'items.*.notes' => ['nullable', 'string'],
+            'items.*.notes' => ['nullable', 'string', 'max:255'],
         ]);
 
         if ($validator->fails()) {
@@ -145,7 +144,7 @@ class PublicOrderController extends Controller
                     // Kalau weight_kg tidak dikirim → throw ValidationException.
                     // ValidationException otomatis di-catch oleh Laravel dan
                     // dikembalikan sebagai JSON 422 ke client.
-                    if ($weightKg === null || $weightKg <= 0) {
+                    if ($weightKg === null) {
                         $field = 'items.' . $index . '.weight_kg';
                         throw ValidationException::withMessages([
                             $field => ['weight_kg wajib diisi dan lebih dari 0 untuk layanan per_kg.'],
@@ -236,24 +235,46 @@ class PublicOrderController extends Controller
                 'notes'           => $pickupData['notes'] ?? null,
             ]);
 
-            // Return array biasa dari closure — BUKAN JsonResponse.
-            // KENAPA? Karena transaction closure seharusnya hanya berurusan
-            // dengan data, bukan HTTP response. Pembuatan response dilakukan
-            // di luar closure supaya separation of concerns terjaga.
-            return [
-                'order_id'       => $order->id,
-                'order_number'   => $order->order_number,
-                'customer_id'    => $customer->id,
-                'status'         => $order->status,
-                'payment_status' => $order->payment_status,
-                'total_amount'   => $order->total_amount,
-            ];
+            // Return full order with items loaded for invoice generation.
+            return $order->load('items');
         });
 
         return response()->json([
             'message' => 'Order berhasil dibuat',
             'data'    => $result,
         ], 201);
+    }
+
+    public function services(): JsonResponse
+    {
+        // Ambil semua layanan yang aktif untuk ditampilkan di form pemesanan pelanggan.
+        $services = Service::where('is_active', true)
+            ->get(['id', 'name', 'code', 'pricing_model', 'unit_price', 'description', 'estimated_hours']);
+
+        return response()->json([
+            'data' => $services
+        ]);
+    }
+
+    public function track(string $orderNumber): JsonResponse
+    {
+        // Cari order berdasarkan nomor order (bukan ID) supaya aman diakses publik.
+        // Eager load relasi yang dibutuhkan untuk menampilkan status dan detail item.
+        $order = Order::with([
+            'items',
+            'statusHistories' => fn($q) => $q->orderBy('changed_at', 'desc'),
+            'deliveries'
+        ])->where('order_number', $orderNumber)->first();
+
+        if (!$order) {
+            return response()->json([
+                'message' => 'Nomor order tidak ditemukan.'
+            ], 404);
+        }
+
+        return response()->json([
+            'data' => $order
+        ]);
     }
 
     private function generateCustomerCode(): string

@@ -15,7 +15,7 @@ class ServiceSeeder extends Seeder
         DB::table('services')->insert([
             [
                 // Layanan kiloan reguler.
-                'code' => 'SVC000001',
+                'code' => 'SVC0001',
                 'name' => 'Cuci Kiloan',
                 'pricing_model' => 'per_kg',
                 'unit_price' => 7000,
@@ -25,7 +25,7 @@ class ServiceSeeder extends Seeder
             ],
             [
                 // Layanan setrika.
-                'code' => 'SVC000002',
+                'code' => 'SVC0002',
                 'name' => 'Setrika Saja',
                 'pricing_model' => 'per_kg',
                 'unit_price' => 5000,
@@ -35,7 +35,7 @@ class ServiceSeeder extends Seeder
             ],
             [
                 // Layanan dry clean per item.
-                'code' => 'SVC000003',
+                'code' => 'SVC0003',
                 'name' => 'Dry Clean Jas',
                 'pricing_model' => 'per_item',
                 'unit_price' => 25000,

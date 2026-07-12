@@ -76,6 +76,8 @@ Route::prefix('v1')
         // panggil method 'store' yang ada di class PublicOrderController.
         // throttle:public-order = maksimal 10 order/menit/IP
         Route::post('/public/orders', [PublicOrderController::class, 'store'])->middleware('throttle:public-order');
+        Route::get('/public/services', [PublicOrderController::class, 'services']);
+        Route::get('/public/orders/{order_number}', [PublicOrderController::class, 'track']);
 
         // ============================================================
         // SEO Endpoints — publik, tidak butuh login.
